@@ -81,7 +81,7 @@ qCheck/
 ## Clone Repository
 
 ```bash
-git clone --recurse-submodules https://gitlab.informatik.uni-bremen.de/quantum-computing/qcheck.git
+git clone --recurse-submodules https://github.com/qc-agra-cps/qCheck.git
 cd qCheck
 ```
 
