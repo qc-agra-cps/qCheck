@@ -1,0 +1,9 @@
+INPUT(A)
+INPUT(B)
+INPUT(C)
+OUTPUT(Y)
+
+notA = NOT(A)
+notAandB = AND(notA, B)
+AandC = AND(A, C) 
+Y = OR(notAandB, AandC)

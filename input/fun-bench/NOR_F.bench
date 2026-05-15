@@ -1,0 +1,7 @@
+INPUT(A)
+INPUT(B)
+INPUT(C)
+OUTPUT(Y)
+
+AorB = XNOR(A, B)
+Y = NOR(C, AorB)

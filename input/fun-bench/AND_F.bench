@@ -1,0 +1,9 @@
+
+INPUT(A)
+INPUT(B)
+INPUT(C)
+OUTPUT(Y)
+
+AandB = NOR(A, B)
+Y = AND(AandB, C)
+

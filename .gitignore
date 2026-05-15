@@ -1,0 +1,27 @@
+# Python cache
+__pycache__/
+*.py[cod]
+
+# Virtual environment
+venv/
+
+# Output/generated files
+output/
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+
+# Submodule build artifacts
+extern/**/build/
+extern/**/*.o
+extern/**/*.so
+extern/**/__pycache__/
+
+# IDE files
+.vscode/
+.idea/
+
+# OS files
+.DS_Store

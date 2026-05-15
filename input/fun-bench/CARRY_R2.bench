@@ -1,0 +1,6 @@
+INPUT(A)
+INPUT(B)
+INPUT(C)
+OUTPUT(Y)
+
+Y = MAJ(A, B, C)

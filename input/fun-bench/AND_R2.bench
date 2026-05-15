@@ -1,0 +1,8 @@
+
+INPUT(A)
+INPUT(B)
+INPUT(C)
+OUTPUT(Y)
+
+Y = AND(A, B, C)
+

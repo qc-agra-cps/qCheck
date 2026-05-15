@@ -1,0 +1,7 @@
+[submodule "extern/pyPicoSAT"]
+	path = extern/pyPicoSAT
+	url = https://github.com/pysmt/pyPicoSAT.git
+    ignore = dirty
+[submodule "extern/pyLingeling"]
+	path = extern/pyLingeling
+	url = https://github.com/pramodsu/pyLingeling.git

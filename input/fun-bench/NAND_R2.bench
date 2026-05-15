@@ -1,0 +1,8 @@
+
+INPUT(A)
+INPUT(B)
+INPUT(C)
+OUTPUT(Y)
+
+Y = NAND(A, B, C)
+

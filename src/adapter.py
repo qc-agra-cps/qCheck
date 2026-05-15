@@ -1,0 +1,279 @@
+# -*- coding: utf-8 -*-
+#
+# This file is part of the qCheck tool.
+#
+# Developed for the Deutsches Forschungszentrum für Künstliche 
+# Intelligenz GmbH (DFKI), Cyber-Physical Systems Dept.
+#
+# This program is free software: you can redistribute it and/or
+# modify it under the terms of the GNU General Public License
+# as published by the Free Software Foundation, either version
+# 3 of the License, or, at your option, any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public
+# License along with this program. If not, see
+# <https://www.gnu.org/licenses/>.
+#
+# -------------------------------------------------------------------------
+# @file    adapter.py
+# @brief   CNF and quantum-compatible ESOP-CNF encoding for Boolean circuits.
+#
+# @details
+# This module provides helper functions for translating a Boolean circuit
+# represented using qCheck/ckt AST nodes into:
+#
+#   1. Standard CNF clauses for classical SAT solving.
+#   2. ESOP-style quantum-compatible clauses used by the qSAT flow.
+#
+# The quantum-compatible encoding follows the ESOP-based formulation
+# discussed in:
+#
+#   A. Kole, M. E. Djeridane, L. Weingarten, K. Datta, and R. Drechsler,
+#   "qSAT: Design of an Efficient Quantum Satisfiability Solver for
+#   Hardware Equivalence Checking," ACM Journal on Emerging Technologies
+#   in Computing Systems, 2025.
+#   DOI: 10.1145/3729229
+#
+# @date    26.04.2024
+# @version 1.0
+# @author  Mohammed Elkacem Djeridane
+# -------------------------------------------------------------------------
+# Modification History
+#
+# 05.02.2025  Abhoy Kole
+#   - Updated circuitToqCNF() to return clauses directly after optional 
+#     debug inspection.
+#   - Modified NOT gate encoding in gateToqCNF() from:
+#       [lOut, lFanins[0]]
+#     to:
+#       [lOut, ESOP, lFanins[0]]
+#   - Added debug print statements for NOT and BUF gates.
+#   - Added quantum-compatible ESOP encoding support for MUX gates.
+#   - Added quantum-compatible ESOP encoding support for MAJ gates.
+# 09.12.2025 - Abhoy Kole
+#   - Optimized BFS traversal in circuitToCNF() and circuitToqCNF().
+#   - Replaced list-based queue handling:
+#       queue.pop(0)
+#     with collections.deque:
+#       queue.popleft()
+#   - Replaced repeated fanin appends with:
+#       queue.extend(node.fanins)
+#   - Improved scalability of CNF/qCNF generation for large miter circuits,
+#     including 32-bit adders and multiplier benchmarks.
+#
+# -------------------------------------------------------------------------
+from collections import deque
+import ckt
+
+
+def circuitToCNF(root_node, node2literal_map, newVar):
+    """Convert a circuit into a set of clauses. node2literal_map is a map
+    from nodes to literals. newVar is a function that returns a new literal.
+    This could just be the solver object's newVar method."""
+
+    def getLiteral(n):
+        """Helper function that returns a literal corresponding to a node.
+        It creates a new literal using newVar if one doesn't already exist."""
+        if n not in node2literal_map:
+            node2literal_map[n] = newVar(n)
+        return node2literal_map[n]
+
+    #queue = [root_node] # queue for BFS.
+    queue = deque([root_node])
+    visited = set() # empty set.
+    clauses = []
+    #while len(queue) > 0:
+        #n = queue.pop(0)
+    while queue:
+        n = queue.popleft()
+        assert (isinstance(n, ckt.ASTNode))
+        if n in visited:
+            continue
+        visited.add(n)
+        # get the literal for the output node.
+        output_lit = getLiteral(n)
+        input_lits = [getLiteral(fi) for fi in n.fanins]
+        for cl in gateToCNF(n, output_lit, input_lits):
+            clauses.append(cl)
+        #for fi in n.fanins:
+            #queue.append(fi)
+        queue.extend(n.fanins)
+    return clauses
+
+def gateSetToCNF(gates, nmap, newVar):
+    "Return the clauses corresponding to a set of gates."
+    def getLiteral(n):
+        """Helper function that returns a literal corresponding to a node.
+        It creates a new literal using newVar if one doesn't already exist."""
+        if n not in nmap:
+            nmap[n] = newVar(n)
+        return nmap[n]
+
+    clauses = []
+    for g in gates:
+        oLit = getLiteral(g)
+        iLits = [getLiteral(fi) for fi in g.fanins]
+        clauses += gateToCNF(g, oLit, iLits)
+    return clauses
+
+def gateToCNF(g, lOut, lFanins):
+    """Return a list of clauses that encode the functionality of this gate.
+    lOut is the literal corresponding to the output of the gate, while lFanins
+    is a list of literals that corresponds to each of the inputs of this
+    gate."""
+    if g.is_const0():
+        return [[-lOut]]
+    elif g.is_const1():
+        return [[lOut]]
+    elif g.is_input():
+        return []
+    elif g.is_and_gate():
+        zeroClauses = [[fi, -lOut] for fi in lFanins]
+        oneClause = [-fi for fi in lFanins] + [lOut]
+        return zeroClauses + [oneClause]
+    elif g.is_not_gate():
+        return [[lFanins[0], lOut], [-lFanins[0], -lOut]]
+    elif g.is_buf_gate():
+        return [[lFanins[0], -lOut], [-lFanins[0], lOut]]
+    elif g.is_or_gate():
+        oneClauses = [[-fi, lOut] for fi in lFanins]
+        zeroClause = lFanins + [-lOut]
+        clauses = oneClauses + [zeroClause]
+        return clauses
+    elif g.is_xor_gate():
+        x, y, z = lFanins[0], lFanins[1], lOut
+        return [[x, y, -z], [-x, -y, -z], [x, -y, z], [-x, y, z]]
+    elif g.is_xnor_gate():
+        x, y, z = lFanins[0], lFanins[1], lOut
+        return [[x, y, z], [-x, -y, z], [x, -y, -z], [-x, y, -z]]
+    elif g.is_nand_gate():
+        oneClauses = [[fi, lOut] for fi in lFanins]
+        zeroClause = [-fi for fi in lFanins] + [-lOut]
+        return oneClauses + [zeroClause]
+    elif g.is_nor_gate():
+        zeroClauses = [[-fi, -lOut] for fi in lFanins]
+        oneClause = lFanins + [lOut]
+        clauses = zeroClauses + [oneClause]
+        return clauses
+    elif g.is_mux():
+        [s, a, b] = [lFanins[0], lFanins[1], lFanins[2]]
+        y = lOut
+        clauses = [
+            [ s, -a,  y],
+            [-s, -b,  y],
+            [ s,  a, -y],
+            [-s,  b, -y]
+        ]
+        return clauses
+    else:
+        raise NotImplementedError("Unknown gate: %s" % str(g))
+def circuitToqCNF(root_node, node2literal_map, newVar):
+    """Convert a circuit into a set of quantum-compatible clauses. node2literal_map is a map
+    from nodes to literals. newVar is a function that returns a new literal.
+    This could just be the solver object's newVar method."""
+
+    def getLiteral(n):
+        """Helper function that returns a literal corresponding to a node.
+        It creates a new literal using newVar if one doesn't already exist."""
+        if n not in node2literal_map:
+            node2literal_map[n] = newVar(n)
+        return node2literal_map[n]
+
+    queue = [root_node] # queue for BFS.
+    visited = set() # empty set.
+    clauses = []
+    while len(queue) > 0:
+        n = queue.pop(0)
+        assert (isinstance(n, ckt.ASTNode))
+        if n in visited:
+            continue
+        visited.add(n)
+        # get the literal for the output node.
+        output_lit = getLiteral(n)
+        input_lits = [getLiteral(fi) for fi in n.fanins]
+        for cl in gateToqCNF(n, output_lit, input_lits):
+            clauses.append(cl)
+        for fi in n.fanins:
+            queue.append(fi)
+    #print(clauses)
+    return clauses
+def gateToqCNF(g, lOut, lFanins):
+    #TODO:: change the qdmacs CNF here
+    """Return a list of clauses that encode the functionality of this gate in an ESOP format for quantum-compatible CNF.
+    lOut is the literal corresponding to the output of the gate, while lFanins
+    is a list of literals that corresponds to each of the inputs of this
+    gate."""
+    ESOP = 0
+    one = 0.1
+    if g.is_const0():
+        return [[-lOut]]
+    elif g.is_const1():
+        return [[lOut]]
+    elif g.is_input():
+        return []
+    elif g.is_and_gate():
+        return_clause = [one, ESOP, lOut, ESOP]
+        for fi in lFanins:
+            return_clause.append(fi)
+        return [return_clause]
+    elif g.is_not_gate():
+        # print ("NOT Encountered", g, lOut, lFanins[0])
+        return [[lOut, ESOP, lFanins[0]]]
+    elif g.is_buf_gate():
+        # print ("Buf Encountered", g, lOut, lFanins[0])
+        return [[one, ESOP, lOut, lFanins[0]]]
+    elif g.is_or_gate():
+        return_clause = [lOut, ESOP]
+        for fi in lFanins:
+            return_clause.append(-fi)
+        return [return_clause]
+    elif g.is_xor_gate():
+        return_clause = [one, ESOP, lOut]
+        for fi in lFanins:
+            return_clause.append(ESOP)
+            return_clause.append(fi)
+        return [return_clause]
+    elif g.is_xnor_gate():
+        return_clause = [lOut]
+        for fi in lFanins:
+            return_clause.append(ESOP)
+            return_clause.append(fi)
+        return [return_clause]
+    elif g.is_nand_gate():
+        return_clause = [lOut, ESOP]
+        for fi in lFanins:
+            return_clause.append(fi)
+        return [return_clause]
+    elif g.is_nor_gate():
+        return_clause = [one, ESOP, lOut, ESOP]
+        for fi in lFanins:
+            return_clause.append(-fi)
+        return [return_clause]
+    elif g.is_mux_gate():
+        return_clause = [one, ESOP, lOut, ESOP]
+        return_clause.append(lFanins[1])
+        return_clause.append(ESOP)
+        return_clause.append(lFanins[0])
+        return_clause.append(lFanins[1])
+        return_clause.append(ESOP)
+        return_clause.append(lFanins[0])
+        return_clause.append(lFanins[2])
+        return [return_clause]
+    elif g.is_maj_gate():
+        return_clause = [one, ESOP, lOut, ESOP]
+        return_clause.append(lFanins[0])
+        return_clause.append(lFanins[1])
+        return_clause.append(ESOP)
+        return_clause.append(lFanins[0])
+        return_clause.append(lFanins[2])
+        return_clause.append(ESOP)
+        return_clause.append(lFanins[1])
+        return_clause.append(lFanins[2])
+        return [return_clause]
+    else:
+        raise NotImplementedError("Unknown gate: %s" % str(g))
